@@ -1,2 +1,8 @@
 config.sh
 password
+*.pem
+instance
+instance_log
+keypair
+userdata.txt.back
+userdata.txt.bak

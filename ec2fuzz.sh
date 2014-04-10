@@ -8,7 +8,6 @@ load_config()
     source config.sh || { echo >&2 "Could not find configuration file.  Aborting."; exit 1; }
 }
 
-
 deps()
 {
     # TODO - dependency checks
@@ -165,23 +164,17 @@ set_ami_config_url()
     echo $USER_DATA_URL
     url=$(echo $USER_DATA_URL | sed -e 's/[\/&]/\\&/g')
     sed -i.back "s/'[^']*'/$url/g" $USER_DATA_FILE
-    exit 1
 }
 
 find_template_instances()
 {
     # Find already running template instaces
-    
-}
-
-launch_wintemplate_instance()
-{
-    # Launch the template instance 
-    # with custom userdata configuration, keypair, security group.
-    # write output to file ./instance
-    echo "Launching Windows Template EC2 instance"
-    aws ec2 run-instances --image-id $BASE_AMI --count 1 --instance-type t1.micro \
-	--key-name $KEYPAIR --security-groups $SECURITY_GROUP --user-data "$(cat userdata.txt)" 2>&1 > instance
+    # TODO - test if undefined and skip
+    echo "Searching for existing template instances."
+    template_id=$(ec2-describe-instances --filter "tag-value=fuzzingtemplate" 2>&1 \
+	| grep INSTANCE | awk '{print $2}')
+    echo "Terminating existing template instances."
+    ec2-terminate-instances $template_id
 }
 
 get_instance_log()
@@ -192,13 +185,32 @@ get_instance_log()
     ec2-get-console-output $instance_id 2>&1 > instance_log
 }
 
+
+launch_wintemplate_instance()
+{
+    # Launch the template instance 
+    # with custom userdata configuration, keypair, security group.
+    # write output to file ./instance
+    find_template_instances
+    echo "Launching Windows Template EC2 instance"
+    aws ec2 run-instances --image-id $BASE_AMI --count 1 --instance-type t1.micro \
+	--key-name $KEYPAIR --security-groups $SECURITY_GROUP --user-data "$(cat userdata.txt)" 2>&1 > instance
+    # tag the instance as fuzzer template so it can be shutdown 
+    instance_id=$(grep InstanceId instance | awk 'BEGIN { FS = "\"" } ; { print $4 }')
+    ec2-get-console-output $instance_id 2>&1 > instance_log
+#    get_instance_log
+    echo "Tagging template image as fuzzer template"
+    ec2-create-tags $instance_id --tag "stack=fuzzingtemplate"
+    exit 1
+}
+
+
 wait_for_instance_setup()
 {
     # poll system log for instance
     # TODO - verify this works
     while : ; do
 	echo "Polling for instance configuration completion"
-	get_instance_log
 	[[ $(cat instance_log) == *RDPCERTIFICATE* ]] || break
 	echo "Instance not yet configured."
 	sleep 5

@@ -1,4 +1,4 @@
 <powershell>
 Set-ExecutionPolicy Unrestricted
-icm $executioncontext.InvokeCommand.NewScriptBlock((New-Object Net.WebClient).DownloadString()) -ArgumentList "NotTheRealPassword"
+icm $executioncontext.InvokeCommand.NewScriptBlock((New-Object Net.WebClient).DownloadString()) -ArgumentList "VerySecret"
 </powershell>
