@@ -2,19 +2,12 @@
 #
 # Cloud fuzzing on AWS EC2
 
-BASE_AMI="ami-16197726"		 # windows server 2008 r2
-KEYPAIR="CFKeypair"		 # TODO - factor out keypair
-SECURITY_GROUP="CFSecurityGroup" # TODO - factor out security group
-USER_DATA_FILE="userdata.txt"	 # TODO - factor out user data
-USER_DATA_URL="https://gist.githubusercontent.com/fconcklin/10331784/raw/4bbbf1b81213e55ea65385714ad678e669a30859/Bootstrap-EC2-Windows-CloudInit.ps1"
-PATH_TO_WINRM=""
-AMI_PASSWORD=$(cat password)
-RESULT_AMI_NAME=""		# TODO - factor out baked ami name
+load_config() 
+{
+    echo "Loading configuration file."
+    source config.sh || { echo >&2 "Could not find configuration file.  Aborting."; exit 1; }
+}
 
-# TODO - do automatic region setting
-# if you don't have correct region configured
-# everything fails
-export EC2_URL="https://ec2.us-west-2.amazonaws.com"
 
 deps()
 {
@@ -265,6 +258,7 @@ stop_template_instance()
 create_custom_ami()
 {
     echo "Setting up AWS instance."
+    load_config
     deps
     create_keypair
     create_security_group
