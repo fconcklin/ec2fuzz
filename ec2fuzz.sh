@@ -177,15 +177,6 @@ find_template_instances()
     ec2-terminate-instances $template_id
 }
 
-get_instance_log()
-{
-    # Get system log of instance for pre-configured checks. 
-    # Write output to file ./instance_log.
-    instance_id=$(grep InstanceId instance | awk 'BEGIN { FS = "\"" } ; { print $3 }')
-    ec2-get-console-output $instance_id 2>&1 > instance_log
-}
-
-
 launch_wintemplate_instance()
 {
     # Launch the template instance 
@@ -196,14 +187,13 @@ launch_wintemplate_instance()
     aws ec2 run-instances --image-id $BASE_AMI --count 1 --instance-type t1.micro \
 	--key-name $KEYPAIR --security-groups $SECURITY_GROUP --user-data "$(cat userdata.txt)" 2>&1 > instance
     # tag the instance as fuzzer template so it can be shutdown 
+    # get instance log
     instance_id=$(grep InstanceId instance | awk 'BEGIN { FS = "\"" } ; { print $4 }')
     ec2-get-console-output $instance_id 2>&1 > instance_log
-#    get_instance_log
     echo "Tagging template image as fuzzer template"
     ec2-create-tags $instance_id --tag "stack=fuzzingtemplate"
     exit 1
 }
-
 
 wait_for_instance_setup()
 {
@@ -258,13 +248,8 @@ install_peach_farmer()
 bake_instance()
 {
     # bake base image
-    aws ec2 create-image --instance-id $instance_id --name 'fuzzing-node-base'
-}
-
-stop_template_instance()
-{
-    # TODO - stop template instance
-    exit 1
+    aws ec2 create-image --instance-id $instance_id  \
+	--name 'fuzzing-node-base' --tag "stack=fuzzingtemplate"
 }
 
 create_custom_ami()
@@ -284,7 +269,7 @@ create_custom_ami()
     install_peach
     install_peach_farmer
 #    bake_instance
-#    stop_template_instance
+    find_template_instances	# stops template instances
 }
 
 main()
