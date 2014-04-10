@@ -175,6 +175,12 @@ set_ami_config_url()
     exit 1
 }
 
+find_template_instances()
+{
+    # Find already running template instaces
+    
+}
+
 launch_wintemplate_instance()
 {
     # Launch the template instance 
