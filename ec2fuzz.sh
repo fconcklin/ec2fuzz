@@ -233,14 +233,6 @@ test_winrm()
     fi
 }
 
-mount_instance()
-{
-    # TODO - mount image for puppet scripts upload
-    # http://www.masterzen.fr/2014/01/11/bootstrapping-windows-servers-with-puppet/
-    # test if the mountpoint is mounted
-    mkdir -p $BASE_MOUNTPOINT
-    mount -t cifs -o user="Administrator$AMI_PASSWORD",uid="$USER",forceuid "//<instance-ip>/C\$/Users/Administrator/AppData/Local/Temp" $BASE_MOUNTPOINT
-}
 
 # install_peach()
 # {
@@ -264,37 +256,122 @@ mount_instance()
 
 bake_instance()
 {
+    echo "Baking base image"
     # bake base image
     aws ec2 create-image --instance-id $instance_id  \
-	--name 'fuzzing-node-base' --tag "stack=fuzzingtemplate"
+	--name 'fuzzing-node-base' 2>&1 | \
+	sed -n 2p 
+    # get custom ami name 
+    ami_id=$(ec2-describe-images | grep fuzzing-node-base | awk '{print $3}')
 }
 
 create_custom_ami()
 {
+    # Create custom AMI 
+    # from Windows Server 2008 base 
+    # and install peach fuzzer 
+    # + dependencies 
     echo "Setting up AWS instance."
-    load_config
-    deps
-    create_keypair
-    create_security_group
-    authorize-ports
-    set_ami_password
-    set_ami_config_url
-    launch_wintemplate_instance
-    wait_for_instance_setup
-    test_winrm
-    exit 
-    mount_instance
-    install_peach
-    install_peach_farmer
-#    bake_instance
+    load_config ; deps
+    create_keypair ; create_security_group
+    authorize-ports ; set_ami_password
+    set_ami_config_url ; launch_wintemplate_instance
+    wait_for_instance_setup ; test_winrm
     find_template_instances	# stops template instances
+}
+
+launch_fuzzing_instance()
+{
+    # TODO - make sure this works 
+
+    echo "Launching fuzzing machine instance." 
+
+    # create custom instance from AMI 
+    # http://www.masterzen.fr/2014/01/11/bootstrapping-windows-servers-with-puppet/
+    aws ec2 run-instances --image-id $ami_id --instance-type t1.micro \ 
+    --security-groups $SECURITY_GROUP --key-name $KEYPAIR 2>&1 > fuzzing_instance
+
+    # get instance id 
+    fuzzing_instance_id=$(grep InstanceId fuzzing_instance | awk 'BEGIN { FS = "\"" } ; { print $4 }')
+
+    # get fuzzing instance ip 
+    fuzzing_instance_ip=$(ec2-describe-instances $instance_id | sed -n 2p | awk '{print $14}')
+}
+
+mount_instance()
+{
+    # TODO - make sure this works 
+
+    echo "Mounting instance" 
+
+    # TODO - mount image for puppet scripts upload
+    # http://www.masterzen.fr/2014/01/11/bootstrapping-windows-servers-with-puppet/
+    # test if the mountpoint is mounted
+    mkdir -p $BASE_MOUNTPOINT
+    mount -t cifs -o \ 
+    user="Administrator$AMI_PASSWORD",uid="$USER",forceuid "//$fuzzing_instance_ip/C\$/Users/Administrator" $BASE_MOUNTPOINT
+}
+
+install_seeds()
+{
+    # TODO - make sure this works 
+
+    echo "Installing seed files to instance" 
+
+    if [ ! -e $SEEDS_DIR ]; then 
+	echo "Seeds Directory not found. Exiting"
+	exit 1 
+    fi 
+
+    # install seed files for fuzzer 
+    mkdir -p $BASE_MOUNTPOINT/seeds
+    cp -r $SEEDS_DIR $BASE_MOUNTPOINT/seeds 
+}
+
+create_peachpit_template()
+{
+    # TODO - make sure this works 
+    
+    echo "Checking for Peach Pit template"
+
+    # check that the peach pit file exists 
+    # this is sloppy - breaks if run from different path 
+    if [ ! -e "$(pwd)/peach_templates/template.xml" ]; then 
+	echo "Peach Pit template not found. Exiting" 
+	exit 1 
+    fi 
+}
+
+internal_fuzzing_run()
+{
+    # TODO - make sure this works 
+
+    # Binary is part of Windows 
+    # no need to install
+    launch_fuzzing_instance 
+    # there may have to be a wait here 
+    mount_instance
+    install_seeds
+    create_peachpit_template 
+}
+
+launch_fuzzing_run()
+{
+    if [ "$BINARY_INTERNAL" = true ]; then 
+	internal_fuzzing_run
+    fi
 }
 
 main()
 {
     echo "BASE AMI: $BASE_AMI"
+    if [ "$CREATE_AMI" = true ]; then
+	create_custom_ami
+	bake_instance
+    fi
 
-    create_custom_ami
+    launch_fuzzing_run
+
 }
 
 usage() 
