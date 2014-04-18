@@ -1,10 +1,3 @@
-# ec2fuzz Windows AMI template configuration
-# - Modified by Fred Concklin
-# - Original : https://gist.github.com/Iristyle/1672426
-# 
-# Additions 
-# - Windows Debugging Tools downloaded through Windows SDK 
-#
 # Windows AMIs don't have WinRM enabled by default -- this script will enable WinRM
 # AND install 7-zip, curl and .NET 4 if its missing.
 # Then use the EC2 tools to create a new AMI from the result, and you have a system 
@@ -15,7 +8,7 @@
 #
 # <powershell>
 # Set-ExecutionPolicy Unrestricted
-# icm $executioncontext.InvokeCommand.NewScriptBlock((New-Object Net.WebClient).DownloadString('https://gist.github.com/masterzen/6714787/raw')) -ArgumentList "adminPasswordHere"
+# icm $executioncontext.InvokeCommand.NewScriptBlock((New-Object Net.WebClient).DownloadString('https://gist.github.com/masterzen/6714787/raw')) -ArgumentList "adminPassword"
 # </powershell>
 #
 param(
@@ -56,86 +49,92 @@ Set-Location -Path $Env:USERPROFILE
 net user Administrator $AdminPassword
 Add-Content $log -value "Changed Administrator password"
 
-$client = new-object System.Net.WebClient
-
-#zip extraction function
-#http://howtogeek.com/tips/how-to-extract-zip-files-using-powershell
+#zip extractor function
+#taken from http://howtogeek.com/tips/how-to-extract-zip-files-using-powershell
 function Expand-ZIPFile($file, $destination)
 {
-	$shell = new-object -com shell.application
-	$zip = $shell.NameSpace($file)
-	foreach($item in $zip.items())
-	{
-		$shell.Namespace($destination).copyhere($item)
-	}
+    $shell = new-object -com shell.application
+    $zip = $shell.NameSpace($file)
+    foreach($item in $zip.items())
+    {
+        $shell.Namespace($destination).copyhere($item)
+    }
 }
 
-# Peach fuzzer 3.0 requires Windows Debugging Tools
-if ((Test-Path "C:\Program Files\Debugging Tools for Windows (x64)") -eq $false)
-{
-	$netUrl = if ($IsCore) {'http://path.to/windows/debug/tools.exe'} `
-	    else { 'http://not.neeeed/here.exe' }
+$client = new-object System.Net.WebClient
 
-	$client.DownloadFile( $netUrl, 'tools.exe')
-	Start-Process -FilePath 'C:\Users\Administrator\tools.exe' -ArgumentList '/norestart /q /ChainingPackage ADMINDEPLOYMENT' -Wait -NoNewWindow
-	del tools.exe
-	Add-Content $log -value "Found that Windows Debugging tools were not installed and downloaded / installed"
-}
-
-# Peach
-
+# Peach fuzzer 3.0 requires .net framework v4
 #.net 4
 if ((Test-Path "${Env:windir}\Microsoft.NET\Framework\v4.0.30319") -eq $false)
 {
-	$netUrl = if ($IsCore) {'http://download.microsoft.com/download/3/6/1/361DAE4E-E5B9-4824-B47F-6421A6C59227/dotNetFx40_Full_x86_x64_SC.exe' } `
-	    else { 'http://download.microsoft.com/download/9/5/A/95A9616B-7A37-4AF6-BC36-D6EA96C8DAAE/dotNetFx40_Full_x86_x64.exe' }
+    $netUrl = if ($IsCore) {'http://download.microsoft.com/download/3/6/1/361DAE4E-E5B9-4824-B47F-6421A6C59227/dotNetFx40_Full_x86_x64_SC.exe' } `
+    else { 'http://download.microsoft.com/download/9/5/A/95A9616B-7A37-4AF6-BC36-D6EA96C8DAAE/dotNetFx40_Full_x86_x64.exe' }
 
-	$client.DownloadFile( $netUrl, 'dotNetFx40_Full.exe')
-	Start-Process -FilePath 'C:\Users\Administrator\dotNetFx40_Full.exe' -ArgumentList '/norestart /q  /ChainingPackage ADMINDEPLOYMENT' -Wait -NoNewWindow
-	del dotNetFx40_Full.exe
-	Add-Content $log -value "Found that .NET4 was not installed and downloaded / installed"
+    $client.DownloadFile( $netUrl, 'dotNetFx40_Full.exe')
+    Start-Process -FilePath 'C:\Users\Administrator\dotNetFx40_Full.exe' -ArgumentList '/norestart /q  /ChainingPackage ADMINDEPLOYMENT' -Wait -NoNewWindow
+    del dotNetFx40_Full.exe
+    Add-Content $log -value "Found that .NET4 was not installed and downloaded / installed"
+}
+
+# Peach fuzzer 3.0 requires windows debugging tools
+if ((Test-Path "C:\Program Files\Debugging Tools for Windows (x64)") -eq $false)
+{
+    $netUrl = 'http://download.microsoft.com/download/B/0/C/B0C80BA3-8AD6-4958-810B-6882485230B5/standalonesdk/sdksetup.exe'    
+    $client.DownloadFile( $netUrl, 'windbg.exe')
+    Start-Process -FilePath 'C:\Users\Administrator\windbg.exe' -ArgumentList '/norestart /q /ChainingPackage ADMINDEPLOYMENT' -Wait -NoNewWindow
+    del tools.exe
+    Add-Content $log -value "Found that Windows Debugging tools were not installed and downloaded / installed"
+}
+
+
+# Peach farmer must be downloaded
+if ((Test-Path "C:\Users\Administrator\peachfarmer") -eq $false)
+{
+    $netUrl = 'http://path.to/peachfarmer.zip'
+    $client.DownloadFile( $netUrl, 'peachfarmer.zip')
+    Expand-ZIPFile -File "C:\Users\Administrator\peachfarmer.zip" -Destination "C:\Users\Administrator\peachfarmer"
 }
 
 #configure powershell to use .net 4
 $config = @'
 <?xml version="1.0" encoding="utf-8" ?>
 <configuration>
-<!-- http://msdn.microsoft.com/en-us/library/w4atty68.aspx -->
-<startup useLegacyV2RuntimeActivationPolicy="true">
-<supportedRuntime version="v4.0" />
-<supportedRuntime version="v2.0.50727" />
-</startup>
+  <!-- http://msdn.microsoft.com/en-us/library/w4atty68.aspx -->
+  <startup useLegacyV2RuntimeActivationPolicy="true">
+    <supportedRuntime version="v4.0" />
+    <supportedRuntime version="v2.0.50727" />
+  </startup>
 </configuration>
 '@
 
 if (Test-Path "${Env:windir}\SysWOW64\WindowsPowerShell\v1.0\powershell.exe")
 {
-	$config | Set-Content "${Env:windir}\SysWOW64\WindowsPowerShell\v1.0\powershell.exe.config"
-	Add-Content $log -value "Configured 32-bit Powershell on x64 OS to use .NET 4"
+    $config | Set-Content "${Env:windir}\SysWOW64\WindowsPowerShell\v1.0\powershell.exe.config"
+    Add-Content $log -value "Configured 32-bit Powershell on x64 OS to use .NET 4"
 }
 if (Test-Path "${Env:windir}\system32\WindowsPowerShell\v1.0\powershell.exe")
 {
-	$config | Set-Content "${Env:windir}\system32\WindowsPowerShell\v1.0\powershell.exe.config"
-	Add-Content $log -value "Configured host OS specific Powershell at ${Env:windir}\system32\ to use .NET 4"
+    $config | Set-Content "${Env:windir}\system32\WindowsPowerShell\v1.0\powershell.exe.config"
+    Add-Content $log -value "Configured host OS specific Powershell at ${Env:windir}\system32\ to use .NET 4"
 }
 
 #check winrm id, if it's not valid and LocalAccountTokenFilterPolicy isn't established, do it
 $id = &winrm id
 if (($id -eq $null) -and (Get-ItemProperty -Path HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System -name LocalAccountTokenFilterPolicy -ErrorAction SilentlyContinue) -eq $null)
 {
-	New-ItemProperty -Path HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System -name LocalAccountTokenFilterPolicy -value 1 -propertyType dword
-	Add-Content $log -value "Added LocalAccountTokenFilterPolicy since winrm id could not be executed"
+    New-ItemProperty -Path HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System -name LocalAccountTokenFilterPolicy -value 1 -propertyType dword
+    Add-Content $log -value "Added LocalAccountTokenFilterPolicy since winrm id could not be executed"
 }
 
 #enable powershell servermanager cmdlets (only for 2008 r2 + above)
 if ($IsCore)
 {
-	DISM /Online /Enable-Feature /FeatureName:MicrosoftWindowsPowerShell /FeatureName:ServerManager-PSH-Cmdlets /FeatureName:BestPractices-PSH-Cmdlets
-	Add-Content $log -value "Enabled ServerManager and BestPractices Cmdlets"
+    DISM /Online /Enable-Feature /FeatureName:MicrosoftWindowsPowerShell /FeatureName:ServerManager-PSH-Cmdlets /FeatureName:BestPractices-PSH-Cmdlets
+    Add-Content $log -value "Enabled ServerManager and BestPractices Cmdlets"
 
-	#enable .NET flavors - on server core only -- errors on regular 2008
-	DISM /Online /Enable-Feature /FeatureName:NetFx2-ServerCore /FeatureName:NetFx2-ServerCore-WOW64 /FeatureName:NetFx3-ServerCore /FeatureName:NetFx3-ServerCore-WOW64
-	Add-Content $log -value "Enabled .NET frameworks 2 and 3 for x86 and x64"
+    #enable .NET flavors - on server core only -- errors on regular 2008
+    DISM /Online /Enable-Feature /FeatureName:NetFx2-ServerCore /FeatureName:NetFx2-ServerCore-WOW64 /FeatureName:NetFx3-ServerCore /FeatureName:NetFx3-ServerCore-WOW64
+    Add-Content $log -value "Enabled .NET frameworks 2 and 3 for x86 and x64"
 }
 
 #7zip
@@ -175,49 +174,62 @@ $client.DownloadFile( $curlUri, 'curl.zip')
 &7z e curl.zip `-o`"c:\program files\curl`"
 if ($Is32Bit) 
 {
-	$client.DownloadFile( 'http://www.paehl.com/open_source/?download=libssl.zip', 'libssl.zip')
-	&7z e libssl.zip `-o`"c:\program files\curl`"
-	del libssl.zip
+    $client.DownloadFile( 'http://www.paehl.com/open_source/?download=libssl.zip', 'libssl.zip')
+    &7z e libssl.zip `-o`"c:\program files\curl`"
+    del libssl.zip
 }
 SetX Path "${Env:Path};C:\Program Files\Curl" /m
 $Env:Path += ';C:\Program Files\Curl'
 del curl.zip
 Add-Content $log -value "Installed Curl from $curlUri and updated path"
 
+#windows debug toolkit
+#curl -# -G -k -L http://download.microsoft.com/download/B/0/C/B0C80BA3-8AD6-4958-810B-6882485230B5/standalonesdk/sdksetup.exe 2>&1 > "$log"
+
+
+# Peach fuzzer 3.0 must be downloaded 
+if ((Test-Path "C:\Users\Administrator\peach") -eq $false)
+{
+    $netUrl = 'http://downloads.sourceforge.net/project/peachfuzz/Peach/3.0/peach-3.0.202-win-x64-release.zip?r=1397538292&use_mirror=softlayer-dal'
+    $client.DownloadFile( $netUrl, 'peachdownload.zip')
+    &7z x "C:\Users\Administrator\peachdownload.zip"
+}
+
+
 #vim
-curl -# -G -k -L ftp://ftp.vim.org/pub/vim/pc/vim73_46rt.zip -o vim73_46rt.zip 2>&1 > "$log"
-curl -# -G -k -L ftp://ftp.vim.org/pub/vim/pc/vim73_46w32.zip -o vim73_46w32.zip 2>&1 > "$log"
-Get-ChildItem -Filter vim73*.zip | 
-    % { &7z x `"$($_.FullName)`"; del $_.FullName; }
+#curl -# -G -k -L ftp://ftp.vim.org/pub/vim/pc/vim73_46rt.zip -o vim73_46rt.zip 2>&1 > "$log"
+#curl -# -G -k -L ftp://ftp.vim.org/pub/vim/pc/vim73_46w32.zip -o vim73_46w32.zip 2>&1 > "$log"
+#Get-ChildItem -Filter vim73*.zip | 
+#    % { &7z x `"$($_.FullName)`"; del $_.FullName; }
 
-SetX Path "${Env:Path};C:\Program Files\Vim" /m
-$Env:Path += ';C:\Program Files\Vim'
+#SetX Path "${Env:Path};C:\Program Files\Vim" /m
+#$Env:Path += ';C:\Program Files\Vim'
 
-Move-Item .\vim\vim73 -Destination "${Env:ProgramFiles}\Vim"
-Add-Content $log -value "Installed Vim text editor and updated path"
+#Move-Item .\vim\vim73 -Destination "${Env:ProgramFiles}\Vim"
+#Add-Content $log -value "Installed Vim text editor and updated path"
 
 #chocolatey - standard one line installer doesn't work on Core b/c Shell.Application can't unzip
 if (-not $IsCore)
 {
-	Invoke-Expression ((new-object net.webclient).DownloadString('http://bit.ly/psChocInstall'))
+    Invoke-Expression ((new-object net.webclient).DownloadString('http://bit.ly/psChocInstall'))
 }
 else
 {
-	#[Environment]::SetEnvironmentVariable('ChocolateyInstall', 'c:\nuget', [System.EnvironmentVariableTarget]::User)
-	#if (![System.IO.Directory]::Exists('c:\nuget')) {[System.IO.Directory]::CreateDirectory('c:\nuget')}
+    #[Environment]::SetEnvironmentVariable('ChocolateyInstall', 'c:\nuget', [System.EnvironmentVariableTarget]::User)
+    #if (![System.IO.Directory]::Exists('c:\nuget')) {[System.IO.Directory]::CreateDirectory('c:\nuget')}
 
-	$tempDir = Join-Path $env:TEMP "chocInstall"
-	if (![System.IO.Directory]::Exists($tempDir)) {[System.IO.Directory]::CreateDirectory($tempDir)}
-	$file = Join-Path $tempDir "chocolatey.zip"
-	$client.DownloadFile("http://chocolatey.org/api/v1/package/chocolatey", $file)
+    $tempDir = Join-Path $env:TEMP "chocInstall"
+    if (![System.IO.Directory]::Exists($tempDir)) {[System.IO.Directory]::CreateDirectory($tempDir)}
+    $file = Join-Path $tempDir "chocolatey.zip"
+    $client.DownloadFile("http://chocolatey.org/api/v1/package/chocolatey", $file)
 
-	&7z x $file `-o`"$tempDir`"
-	Add-Content $log -value 'Extracted Chocolatey'
-	$chocInstallPS1 = Join-Path (Join-Path $tempDir 'tools') 'chocolateyInstall.ps1'
+    &7z x $file `-o`"$tempDir`"
+    Add-Content $log -value 'Extracted Chocolatey'
+    $chocInstallPS1 = Join-Path (Join-Path $tempDir 'tools') 'chocolateyInstall.ps1'
 
-	& $chocInstallPS1
+    & $chocInstallPS1
 
-	Add-Content $log -value 'Installed Chocolatey / Verifying Paths'
+    Add-Content $log -value 'Installed Chocolatey / Verifying Paths'
 }
 
 Add-Content $log -value "Installed Chocolatey"
@@ -245,8 +257,8 @@ if (-not (Test-Path $remotingScript)) { $remotingScript = [IO.Path]::Combine($sy
 Add-Content $log -value "Found Remoting Script: [$(Test-Path $remotingScript)] at $remotingScript"
 if (Test-Path $remotingScript)
 {
-	. $remotingScript -force -enable
-	Add-Content $log -value 'Ran Configure-SMRemoting.ps1'
+    . $remotingScript -force -enable
+    Add-Content $log -value 'Ran Configure-SMRemoting.ps1'
 }
 
 #wait a bit, it's windows after all

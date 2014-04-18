@@ -1,6 +1,12 @@
 #!/bin/bash 
 #
 # Cloud fuzzing on AWS EC2
+# Requires winrm on path
+
+# user_data="<powershell>
+# Set-ExecutionPolicy Unrestricted
+# icm $executioncontext.InvokeCommand.NewScriptBlock((New-Object Net.WebClient).DownloadString('https://gist.github.com/masterzen/6714787/raw')) -ArgumentList "adminPasswordHere"
+# </powershell>"
 
 load_config() 
 {
@@ -29,8 +35,7 @@ create_keypair()
     # and resetting Admin password of Windoze instance
     # TODO - if remote keypair exists, download?
     # TODO - if remote keypair exists, delete?
-    if [ ! -f keypair ]
-    then 
+    if [ ! -f keypair ]; then
 	echo "No keypair file found. Creating keypair."
 	# create keypair 
 	aws ec2 create-key-pair --key-name $KEYPAIR 2>&1 > keypair
@@ -150,7 +155,7 @@ set_ami_password()
     # with password from variable in script
     echo "Setting AMI password in USERDATA for template"
     echo "AMI password:"
-    echo $(echo $AMI_PASSWORD | tr -d '"')
+    echo $(echo $AMI_PASSWORD | tr -d '"' | tr -d '\')
     # make a backup of userdata file
     sed -i.bak "s/\"[^']*\"/$AMI_PASSWORD/g" $USER_DATA_FILE 
 }
@@ -163,7 +168,8 @@ set_ami_config_url()
     echo "Remote url:"
     echo $USER_DATA_URL
     url=$(echo $USER_DATA_URL | sed -e 's/[\/&]/\\&/g')
-    sed -i.back "s/'[^']*'/$url/g" $USER_DATA_FILE
+    # create a backup file
+    sed -i.bak "s/'[^']*'/$url/g" $USER_DATA_FILE
 }
 
 find_template_instances()
@@ -173,6 +179,7 @@ find_template_instances()
     echo "Searching for existing template instances."
     template_id=$(ec2-describe-instances --filter "tag-value=fuzzingtemplate" 2>&1 \
 	| grep INSTANCE | awk '{print $2}')
+    # Terminate running instances
     echo "Terminating existing template instances."
     ec2-terminate-instances $template_id
 }
@@ -192,19 +199,20 @@ launch_wintemplate_instance()
     ec2-get-console-output $instance_id 2>&1 > instance_log
     echo "Tagging template image as fuzzer template"
     ec2-create-tags $instance_id --tag "stack=fuzzingtemplate"
-    exit 1
 }
 
 wait_for_instance_setup()
 {
     # poll system log for instance
     # TODO - verify this works
-    while : ; do
-	echo "Polling for instance configuration completion"
-	[[ $(cat instance_log) == *RDPCERTIFICATE* ]] || break
-	echo "Instance not yet configured."
-	sleep 5
-    done
+    ec2-get-console-output $instance_id 2>&1 > instance_log
+    sleep 5
+    echo "Polling for instance configuration completion"
+    if grep -q 'Executing User Data' instance_log; then
+	echo "Template Configured"
+    else
+    	wait_for_instance_setup
+    fi
 }
 
 test_winrm()
@@ -212,38 +220,47 @@ test_winrm()
     # TODO - Fix test 
     # run winrm 
     instance_ip=$(ec2-describe-instances $instance_id | sed -n 2p | awk '{print $14}')
-    $( cd $PATH_TO_WINRM/bin/ ; \
-         winrm_test=$(./winrm -hostname $instance_ip -username Administrator -password $AMI_PASSWORD "ipconfig /all")) 
-    [[ ! $(echo $winrm_test | wc -l) -eq 0 ]] || "Winrm test failed. Exiting" ; exit 1
+    # $( cd $PATH_TO_WINRM/bin/ ; \
+    #      winrm_test=$(./winrm -hostname $instance_ip -username Administrator -password $AMI_PASSWORD "ipconfig /all")) 
+    # [[ ! $(echo $winrm_test | wc -l) -eq 0 ]] || "Winrm test failed. Exiting" ; exit 1
+    echo "Testing WinRM connectivity."
+    if winrm -hostname $instance_ip -username Administrator -password $AMI_PASSWORD "ipconfig /all"
+    then
+	echo "Winrm test succeeded."
+    else
+	echo "Winrm test failed. Exiting."
+	exit 1
+    fi
 }
 
 mount_instance()
 {
     # TODO - mount image for puppet scripts upload
     # http://www.masterzen.fr/2014/01/11/bootstrapping-windows-servers-with-puppet/
-    sudo mkdir -p /mnt/win
-    sudo mount -t cifs -o user="Administrator$AMI_PASSWORD",uid="$USER",forceuid "//<instance-ip>/C\$/Users/Administrator/AppData/Local/Temp" /mnt/win
+    # test if the mountpoint is mounted
+    mkdir -p $BASE_MOUNTPOINT
+    mount -t cifs -o user="Administrator$AMI_PASSWORD",uid="$USER",forceuid "//<instance-ip>/C\$/Users/Administrator/AppData/Local/Temp" $BASE_MOUNTPOINT
 }
 
-install_peach()
-{
-    # http://www.masterzen.fr/2014/01/11/bootstrapping-windows-servers-with-puppet/
-    zip -q -r /mnt/win/puppet-windows.zip manifests/peach.pp modules -x .git
-    ./winrm \
-	"7z x -y -oC:\\Users\\Administrator\\AppData\\Local\\Temp\\ C:\\Users\\Administrator\\AppData\\Local\\Temp\\puppet-windows.zip | FIND /V \"ing  \""
-    ./winrm \
-	"\"C:\\Program Files (x86)\\Puppet Labs\\Puppet\\bin\\puppet.bat\" apply --debug --modulepath C:\\Users\\Administrator\\AppData\\Local\\Temp\\modules C:\\Users\\Administrator\\AppData\\Local\\Temp\\manifests\\site.pp"
-}
+# install_peach()
+# {
+#     # http://www.masterzen.fr/2014/01/11/bootstrapping-windows-servers-with-puppet/
+#     zip -q -r /mnt/win/puppet-windows.zip manifests/peach.pp modules -x .git
+#     ./winrm \
+# 	"7z x -y -oC:\\Users\\Administrator\\AppData\\Local\\Temp\\ C:\\Users\\Administrator\\AppData\\Local\\Temp\\puppet-windows.zip | FIND /V \"ing  \""
+#     ./winrm \
+# 	"\"C:\\Program Files (x86)\\Puppet Labs\\Puppet\\bin\\puppet.bat\" apply --debug --modulepath C:\\Users\\Administrator\\AppData\\Local\\Temp\\modules C:\\Users\\Administrator\\AppData\\Local\\Temp\\manifests\\site.pp"
+# }
 
-install_peach_farmer()
-{
-    # http://www.masterzen.fr/2014/01/11/bootstrapping-windows-servers-with-puppet/
-    zip -q -r /mnt/win/puppet-windows.zip manifests/peachfarmer.pp modules -x .git
-    ./winrm \
-	"7z x -y -oC:\\Users\\Administrator\\AppData\\Local\\Temp\\ C:\\Users\\Administrator\\AppData\\Local\\Temp\\puppet-windows.zip | FIND /V \"ing  \""
-    ./winrm \
-	"\"C:\\Program Files (x86)\\Puppet Labs\\Puppet\\bin\\puppet.bat\" apply --debug --modulepath C:\\Users\\Administrator\\AppData\\Local\\Temp\\modules C:\\Users\\Administrator\\AppData\\Local\\Temp\\manifests\\site.pp"
-}
+# install_peach_farmer()
+# {
+#     # http://www.masterzen.fr/2014/01/11/bootstrapping-windows-servers-with-puppet/
+#     zip -q -r /mnt/win/puppet-windows.zip manifests/peachfarmer.pp modules -x .git
+#     ./winrm \
+# 	"7z x -y -oC:\\Users\\Administrator\\AppData\\Local\\Temp\\ C:\\Users\\Administrator\\AppData\\Local\\Temp\\puppet-windows.zip | FIND /V \"ing  \""
+#     ./winrm \
+# 	"\"C:\\Program Files (x86)\\Puppet Labs\\Puppet\\bin\\puppet.bat\" apply --debug --modulepath C:\\Users\\Administrator\\AppData\\Local\\Temp\\modules C:\\Users\\Administrator\\AppData\\Local\\Temp\\manifests\\site.pp"
+# }
 
 bake_instance()
 {
@@ -265,6 +282,7 @@ create_custom_ami()
     launch_wintemplate_instance
     wait_for_instance_setup
     test_winrm
+    exit 
     mount_instance
     install_peach
     install_peach_farmer

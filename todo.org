@@ -1,0 +1,34 @@
+#+title: todo implement list 
+#+author: Fred Concklin
+
+* Is farmer needed?
+** adds extra vm 
+
+* Puppet scripts 
+** Peach 
+*** download zip file 
+*** unzip 
+** Peach Farmer 
+*** download zip file 
+
+* Binary installation 
+** command line arg 
+** mount over samba share 
+** create peach pit 
+*** unless peach pit specified as command line arg
+** launch batch file 
+
+* Launch binary 
+** launch peach 
+*** binary path is in peach pit 
+
+* Monitor crashes 
+** Peach farmer?
+** mount crashes location as smb share 
+*** repeat for every instance
+** copy files 
+*** repeat for every instance
+
+* Tear down vm 
+** delete instance based on instance id
+

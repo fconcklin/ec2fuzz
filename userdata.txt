@@ -1,4 +1,4 @@
 <powershell>
 Set-ExecutionPolicy Unrestricted
-icm $executioncontext.InvokeCommand.NewScriptBlock((New-Object Net.WebClient).DownloadString()) -ArgumentList "VerySecret"
+icm $executioncontext.InvokeCommand.NewScriptBlock((New-Object Net.WebClient).DownloadString('https://gist.githubusercontent.com/anonymous/10704859/raw/ac3d0716927b9e99e31fe8ac1a7937f112742519/bootstrapdoze.ps1')) -ArgumentList "Very11Secret"
 </powershell>

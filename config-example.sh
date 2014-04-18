@@ -15,5 +15,6 @@ PATH_TO_WINRM=""
 AMI_PASSWORD="reallyYouWroteThisInBash?"
 # Name of AMI result image. 
 RESULT_AMI_NAME=""
+BASE_MOUNTPOINT="$HOME/fuzzmounts/base"
 
 export EC2_URL="https://ec2.us-west-2.amazonaws.com"
