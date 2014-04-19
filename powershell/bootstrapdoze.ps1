@@ -195,6 +195,12 @@ if ((Test-Path "C:\Users\Administrator\peach") -eq $false)
     &7z x "C:\Users\Administrator\peachdownload.zip"
 }
 
+# Add Peach fuzzer to path
+# http://blogs.technet.com/b/heyscriptingguy/archive/2011/07/23/use-powershell-to-modify-your-environmental-path.aspx
+$oldPath = (Get-ItemProperty -Path 'Registry::HKEY_LOCAL_MACHINE\System\CurrentControlSet\Control\Session Manager\Environment' -Name PATH).Path 
+$newPath = $oldPath+';C:\Users\Administrator\peachdownload\'
+
+Set-ItemProperty -Path 'Registry::HKEY_LOCAL_MACHINE\System\CurrentControlSet\Control\Session Manager\Environment' -Name PATH -Value $newPath
 
 #vim
 #curl -# -G -k -L ftp://ftp.vim.org/pub/vim/pc/vim73_46rt.zip -o vim73_46rt.zip 2>&1 > "$log"

@@ -272,11 +272,16 @@ create_custom_ami()
     # and install peach fuzzer 
     # + dependencies 
     echo "Setting up AWS instance."
-    load_config ; deps
-    create_keypair ; create_security_group
-    authorize-ports ; set_ami_password
-    set_ami_config_url ; launch_wintemplate_instance
-    wait_for_instance_setup ; test_winrm
+    load_config
+    deps
+    create_keypair
+    create_security_group
+    authorize-ports
+    set_ami_password
+    set_ami_config_url
+    launch_wintemplate_instance
+    wait_for_instance_setup
+    test_winrm
     find_template_instances	# stops template instances
 }
 
@@ -324,7 +329,8 @@ install_seeds()
     fi 
 
     # install seed files for fuzzer 
-    mkdir -p $BASE_MOUNTPOINT/seeds
+    mkdir -p $BASE_MOUNTPOINT/fuzzing_run
+    mkdir -p $BASE_MOUNTPOINT/fuzzing_run/seeds
     cp -r $SEEDS_DIR $BASE_MOUNTPOINT/seeds 
 }
 
@@ -340,6 +346,41 @@ create_peachpit_template()
 	echo "Peach Pit template not found. Exiting" 
 	exit 1 
     fi 
+
+    # this is where most of the XML 
+    # file parsing to transform the 
+    # config will take place 
+
+    # for right now just assume that new_template.xml 
+    # is the correctly configured file 
+}
+
+install_template()
+{
+    # TODO - make sure this works 
+    
+    # Install the Peach Pit file 
+    # onto the EC2 instance over local mountpoint 
+    
+    cp $(pwd)/peach_templates/new_template.xml $BASE_MOUNTPOINT/fuzzing_run/
+}
+
+start_fuzzing_run()
+{
+    # TODO - make sure this works 
+
+    # Remotely run winrm to execute task and redirect output to remote machine 
+
+    # execute winrm command on remote machine to launch peach 
+    if winrm -hostname $instance_ip -username Administrator -password $AMI_PASSWORD \
+	"Peach pathToTemplate.xml"
+    then
+	echo "Winrm test succeeded."
+    else
+	echo "Winrm test failed. Exiting."
+	exit 1
+    fi
+    
 }
 
 internal_fuzzing_run()
@@ -353,6 +394,8 @@ internal_fuzzing_run()
     mount_instance
     install_seeds
     create_peachpit_template 
+    install_template 
+    start_fuzzing_run 
 }
 
 launch_fuzzing_run()

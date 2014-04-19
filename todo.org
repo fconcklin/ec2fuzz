@@ -1,6 +1,12 @@
 #+title: todo implement list 
 #+author: Fred Concklin
 
+* script refactoring 
+** add peach to path in powershell configuration 
+** logging in template file 
+*** TODO specify logging folder 
+
+
 * Is farmer needed?
 ** adds extra vm 
 
