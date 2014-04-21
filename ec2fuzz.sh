@@ -26,7 +26,10 @@ deps()
     command -v zip >/dev/null 2>&1 || { echo >&2 "Zip required but not installed.  Aborting."; exit 1; }
     # curl - required for AWS IP check for security group ruls
     command -v curl >/dev/null 2>&1 || { echo >&2 "Curl required but not installed.  Aborting."; exit 1; }
-#    command -v winrm >/dev/null 2>&1 || { echo >&2 "Winrm required but not installed.  Aborting."; exit 1; }
+    # Winrm required for remote command execution
+    command -v winrm >/dev/null 2>&1 || { echo >&2 "Winrm required but not installed.  Aborting."; exit 1; }
+    # SSH required for SMB tunnelling 
+    command -v ssh >/dev/null 2>&1 || { echo >&2 "SSH required but not installed.  Aborting."; exit 1; }
 }
 
 create_keypair()
@@ -121,32 +124,55 @@ enable_winrm() {
     fi
 }
 
-enable_smbtcp()
+# enable_smbtcp()
+# {
+#     # Enable SMB traffic for Security Group
+#     # to reach instance over Samba (for remote mounting)
+#     # If enabled, skip
+#     echo "Checking for SMB/TCP route access"
+#     smbtcp_port=445
+#     defined=$(check_sg_for_rule $smbtcp_port $cidr)
+#     if [ $defined -eq 0 ]
+#     then
+# 	# enable smb/tcp - http://www.masterzen.fr/2014/01/11/bootstrapping-windows-servers-with-puppet/
+# 	echo "- Enabling SMB/TCP"
+# 	smbtcp_status=$(aws ec2 authorize-security-group-ingress \
+# 	    --group-name $SECURITY_GROUP --protocol tcp --port $smbtcp_port --cidr $(cat cidr) 2>&1)
+# 	[[ ! $smbtcp_status == *Invalid* ]] || echo "Error enabling smb/tcp. Exiting." ; exit 1
+#     else
+# 	echo "SMB/TCP traffic enabled for Security Group"
+#     fi
+# }
+
+enable_ssh()
 {
-    # Enable SMB traffic for Security Group
-    # to reach instance over Samba (for remote mounting)
-    # If enabled, skip
+    # SMB Traffic is blocked by ISPs
+    # this requires the use of an SSH tunnel 
+    # for mounting 
+    # also provides encrypted connections 
     echo "Checking for SMB/TCP route access"
-    smbtcp_port=445
-    defined=$(check_sg_for_rule $smbtcp_port $cidr)
+    ssh_port=22
+    defined=$(check_sg_for_rule $ssh_port $cidr)
     if [ $defined -eq 0 ]
     then
-	# enable smb/tcp - http://www.masterzen.fr/2014/01/11/bootstrapping-windows-servers-with-puppet/
-	echo "- Enabling SMB/TCP"
-	smbtcp_status=$(aws ec2 authorize-security-group-ingress \
-	    --group-name $SECURITY_GROUP --protocol tcp --port $smbtcp_port --cidr $(cat cidr) 2>&1)
+	echo "- Enabling SSH"
+	ssh_status=$(aws ec2 authorize-security-group-ingress \
+	    --group-name $SECURITY_GROUP --protocol tcp --port $ssh_port --cidr $(cat cidr) 2>&1)
 	[[ ! $smbtcp_status == *Invalid* ]] || echo "Error enabling smb/tcp. Exiting." ; exit 1
     else
-	echo "SMB/TCP traffic enabled for Security Group"
+	echo "SSH traffic enabled for Security Group"
     fi
 }
+
 
 authorize-ports() 
 {
     # Create all ingress/egress rules 
     # for security group.
     echo "Enabling network access in security groups."
-    enable_rdp ; enable_winrm ; enable_smbtcp 
+    enable_rdp
+    enable_winrm #; enable_smbtcp 
+    enable_ssh
 }
 
 set_ami_password()
@@ -191,8 +217,8 @@ launch_wintemplate_instance()
     # write output to file ./instance
     find_template_instances
     echo "Launching Windows Template EC2 instance"
-    aws ec2 run-instances --image-id $BASE_AMI --count 1 --instance-type t1.micro \
-	--key-name $KEYPAIR --security-groups $SECURITY_GROUP --user-data "$(cat userdata.txt)" 2>&1 > instance
+    # run new fuzzing instance based on AMI id 
+    aws ec2 run-instances --image-id $BASE_AMI --count 1 --instance-type t1.micro --key-name $KEYPAIR --security-groups $SECURITY_GROUP --user-data "$(cat userdata.txt)" 2>&1 > instance
     # tag the instance as fuzzer template so it can be shutdown 
     # get instance log
     instance_id=$(grep InstanceId instance | awk 'BEGIN { FS = "\"" } ; { print $4 }')
@@ -233,7 +259,6 @@ test_winrm()
     fi
 }
 
-
 # install_peach()
 # {
 #     # http://www.masterzen.fr/2014/01/11/bootstrapping-windows-servers-with-puppet/
@@ -254,15 +279,46 @@ test_winrm()
 # 	"\"C:\\Program Files (x86)\\Puppet Labs\\Puppet\\bin\\puppet.bat\" apply --debug --modulepath C:\\Users\\Administrator\\AppData\\Local\\Temp\\modules C:\\Users\\Administrator\\AppData\\Local\\Temp\\manifests\\site.pp"
 # }
 
+deregister_previous_ami()
+{
+    echo "Deregistering previous AMIs"
+    
+    # deregister prior AMI images
+    # TODO - implement chck 
+    previous_ami=$(ec2-describe-images -F "name=fuzzing-node-base" | grep IMAGE | awk '{print $2}')
+    ec2-deregister $previous_ami 
+}
+
+check_template_fully_configured()
+{
+    # Check the template log using winrm 
+    # to make sure it has been fully configured 
+    # and undergone reboot 
+
+    echo "checking for template fully configured"
+
+    # currently monitor instance status to see codes available during reboot 
+    # exit 1
+    # winrm -hostname $instance_ip -username Administrator -password $AMI_PASSWORD "type C:\Bootstrap.txt" > template_status
+    
+}
+
 bake_instance()
 {
+    check_template_fully_configured
+    
     echo "Baking base image"
+
+    deregister_previous_ami
+
     # bake base image
     aws ec2 create-image --instance-id $instance_id  \
 	--name 'fuzzing-node-base' 2>&1 | \
 	sed -n 2p 
     # get custom ami name 
-    ami_id=$(ec2-describe-images | grep fuzzing-node-base | awk '{print $3}')
+    ami_id=$(ec2-describe-images | grep fuzzing-node-base | awk '{print $2}')
+    echo "Base image successfully successfully baked."
+    echo "AMI id: $ami_id"
 }
 
 create_custom_ami()
@@ -272,8 +328,6 @@ create_custom_ami()
     # and install peach fuzzer 
     # + dependencies 
     echo "Setting up AWS instance."
-    load_config
-    deps
     create_keypair
     create_security_group
     authorize-ports
@@ -282,30 +336,72 @@ create_custom_ami()
     launch_wintemplate_instance
     wait_for_instance_setup
     test_winrm
-    find_template_instances	# stops template instances
+}
+
+check_ami_ready()
+{
+    # Check to make sure AMI 
+    # has available status
+    ami_status=$(ec2-describe-images -F "name=fuzzing-node-base" | sed -n 1p | awk '{print $5}')
+    if [ $ami_status = pending ]; then
+	echo "Polling for AMI snapshot completion."
+	sleep 5
+	check_ami_ready
+    fi
+    echo "AMI snapshot complete" 
+}
+
+check_fuzzing_instance_ready()
+{
+    # Poll the fuzzing instance to make
+    # sure it has booted (successfully)
+    echo "Polling Fuzzing Instance for boot completion."
+    # ec2 system log check  
+    instance_console=$(ec2-get-console-output $fuzzing_instance_id 2>&1 > instance_console)
+    if ! grep -q 'Windows is Ready' instance_console; then 
+	sleep 5
+	check_fuzzing_instance_ready
+    else
+	echo "Fuzzing Instance Ready."
+    fi
 }
 
 launch_fuzzing_instance()
 {
     # TODO - make sure this works 
 
+    check_ami_ready
+    # terminate prior instances
+    find_template_instances
+
     echo "Launching fuzzing machine instance." 
+
+    # check if ami_id is configured, if not
+    # then exit. Must be manually defined 
+    # if create_custom_ami is skipped
 
     # create custom instance from AMI 
     # http://www.masterzen.fr/2014/01/11/bootstrapping-windows-servers-with-puppet/
-    aws ec2 run-instances --image-id $ami_id --instance-type t1.micro \ 
-    --security-groups $SECURITY_GROUP --key-name $KEYPAIR 2>&1 > fuzzing_instance
+    aws ec2 run-instances --image-id $ami_id --instance-type t1.micro --security-groups $SECURITY_GROUP --key-name $KEYPAIR 2>&1 > fuzzing_instance
 
     # get instance id 
     fuzzing_instance_id=$(grep InstanceId fuzzing_instance | awk 'BEGIN { FS = "\"" } ; { print $4 }')
 
     # get fuzzing instance ip 
     fuzzing_instance_ip=$(ec2-describe-instances $instance_id | sed -n 2p | awk '{print $14}')
+
+    check_fuzzing_instance_ready
+}
+
+create_ssh_tunnel()
+{
+    echo "Creating SSH tunnel to fuzzing instance."
+    ssh -L 4455:127.0.0.1:445 Administrator@$fuzzing_instance_ip
 }
 
 mount_instance()
 {
-    # TODO - make sure this works 
+    create_ssh_tunnel
 
     echo "Mounting instance" 
 
@@ -313,8 +409,8 @@ mount_instance()
     # http://www.masterzen.fr/2014/01/11/bootstrapping-windows-servers-with-puppet/
     # test if the mountpoint is mounted
     mkdir -p $BASE_MOUNTPOINT
-    mount -t cifs -o \ 
-    user="Administrator$AMI_PASSWORD",uid="$USER",forceuid "//$fuzzing_instance_ip/C\$/Users/Administrator" $BASE_MOUNTPOINT
+#    mount -t cifs -o user="Administrator%$AMI_PASSWORD",uid="$USER",forceuid "//$fuzzing_instance_ip/C\$/Users/Administrator" $BASE_MOUNTPOINT
+    mount_smbfs //Administrator:$AMI_PASSWORD@127.0.0.1:4455/C$ $BASE_MOUNTPOINT
 }
 
 install_seeds()
@@ -372,15 +468,14 @@ start_fuzzing_run()
     # Remotely run winrm to execute task and redirect output to remote machine 
 
     # execute winrm command on remote machine to launch peach 
-    if winrm -hostname $instance_ip -username Administrator -password $AMI_PASSWORD \
+    if winrm -hostname $fuzzing_instance_ip -username Administrator -password $AMI_PASSWORD \
 	"Peach pathToTemplate.xml"
     then
-	echo "Winrm test succeeded."
+	echo "Fuzzing run successfully started."
     else
-	echo "Winrm test failed. Exiting."
+	echo "Failed to start fuzzing run. Exiting."
 	exit 1
     fi
-    
 }
 
 internal_fuzzing_run()
@@ -398,15 +493,28 @@ internal_fuzzing_run()
     start_fuzzing_run 
 }
 
+external_fuzzing_run()
+{ 
+    # TODO - make sure this works 
+
+    # copy external binary over to instance 
+    echo "external fuzzing run not implemented"
+    exit 1
+}
+
 launch_fuzzing_run()
 {
     if [ "$BINARY_INTERNAL" = true ]; then 
 	internal_fuzzing_run
-    fi
+    elif [ "$BINARY_EXTERNAL" = true ]; then 
+	external_fuzzing_run 
+    fi 
 }
 
 main()
 {
+    load_config
+    deps 
     echo "BASE AMI: $BASE_AMI"
     if [ "$CREATE_AMI" = true ]; then
 	create_custom_ami

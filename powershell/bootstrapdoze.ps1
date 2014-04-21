@@ -49,22 +49,9 @@ Set-Location -Path $Env:USERPROFILE
 net user Administrator $AdminPassword
 Add-Content $log -value "Changed Administrator password"
 
-#zip extractor function
-#taken from http://howtogeek.com/tips/how-to-extract-zip-files-using-powershell
-function Expand-ZIPFile($file, $destination)
-{
-    $shell = new-object -com shell.application
-    $zip = $shell.NameSpace($file)
-    foreach($item in $zip.items())
-    {
-        $shell.Namespace($destination).copyhere($item)
-    }
-}
-
 $client = new-object System.Net.WebClient
 
 # Peach fuzzer 3.0 requires .net framework v4
-#.net 4
 if ((Test-Path "${Env:windir}\Microsoft.NET\Framework\v4.0.30319") -eq $false)
 {
     $netUrl = if ($IsCore) {'http://download.microsoft.com/download/3/6/1/361DAE4E-E5B9-4824-B47F-6421A6C59227/dotNetFx40_Full_x86_x64_SC.exe' } `
@@ -86,14 +73,13 @@ if ((Test-Path "C:\Program Files\Debugging Tools for Windows (x64)") -eq $false)
     Add-Content $log -value "Found that Windows Debugging tools were not installed and downloaded / installed"
 }
 
-
 # Peach farmer must be downloaded
-if ((Test-Path "C:\Users\Administrator\peachfarmer") -eq $false)
-{
-    $netUrl = 'http://path.to/peachfarmer.zip'
-    $client.DownloadFile( $netUrl, 'peachfarmer.zip')
-    Expand-ZIPFile -File "C:\Users\Administrator\peachfarmer.zip" -Destination "C:\Users\Administrator\peachfarmer"
-}
+# if ((Test-Path "C:\Users\Administrator\peachfarmer") -eq $false)
+# {
+#     $netUrl = 'http://path.to/peachfarmer.zip'
+#     $client.DownloadFile( $netUrl, 'peachfarmer.zip')
+#     Expand-ZIPFile -File "C:\Users\Administrator\peachfarmer.zip" -Destination "C:\Users\Administrator\peachfarmer"
+# }
 
 #configure powershell to use .net 4
 $config = @'
@@ -202,16 +188,6 @@ $newPath = $oldPath+';C:\Users\Administrator\peachdownload\'
 
 Set-ItemProperty -Path 'Registry::HKEY_LOCAL_MACHINE\System\CurrentControlSet\Control\Session Manager\Environment' -Name PATH -Value $newPath
 
-#vim
-#curl -# -G -k -L ftp://ftp.vim.org/pub/vim/pc/vim73_46rt.zip -o vim73_46rt.zip 2>&1 > "$log"
-#curl -# -G -k -L ftp://ftp.vim.org/pub/vim/pc/vim73_46w32.zip -o vim73_46w32.zip 2>&1 > "$log"
-#Get-ChildItem -Filter vim73*.zip | 
-#    % { &7z x `"$($_.FullName)`"; del $_.FullName; }
-
-#SetX Path "${Env:Path};C:\Program Files\Vim" /m
-#$Env:Path += ';C:\Program Files\Vim'
-
-#Move-Item .\vim\vim73 -Destination "${Env:ProgramFiles}\Vim"
 #Add-Content $log -value "Installed Vim text editor and updated path"
 
 #chocolatey - standard one line installer doesn't work on Core b/c Shell.Application can't unzip
@@ -240,13 +216,17 @@ else
 
 Add-Content $log -value "Installed Chocolatey"
 
+# Install Openssh using Chocolatey
+cinst winsshd.install
+Add-Content $log -value 'Installed WinSSHD'
+
 # install puppet
 #https://downloads.puppetlabs.com/windows/puppet-3.2.4.msi
-curl -# -G -k -L https://downloads.puppetlabs.com/windows/puppet-3.2.4.msi -o puppet-3.2.4.msi 2>&1 > "$log"
-Start-Process -FilePath "msiexec.exe" -ArgumentList '/qn /passive /i puppet-3.2.4.msi /norestart' -Wait
-SetX Path "${Env:Path};C:\Program Files\Puppet Labs\Puppet\bin" /m
-&sc.exe config puppet start= demand
-Add-Content $log -value "Installed Puppet"
+# curl -s -G -k -L https://downloads.puppetlabs.com/windows/puppet-3.2.4.msi -o puppet-3.2.4.msi 2>&1 > "$log"
+# Start-Process -FilePath "msiexec.exe" -ArgumentList '/qn /passive /i puppet-3.2.4.msi /norestart' -Wait
+# SetX Path "${Env:Path};C:\Program Files\Puppet Labs\Puppet\bin" /m
+# &sc.exe config puppet start= demand
+# Add-Content $log -value "Installed Puppet"
 
 &winrm quickconfig `-q
 &winrm set winrm/config/client/auth '@{Basic="true"}'
@@ -254,8 +234,12 @@ Add-Content $log -value "Installed Puppet"
 &winrm set winrm/config/service '@{AllowUnencrypted="true"}'
 Add-Content $log -value "Ran quickconfig for winrm"
 
-&netsh firewall set portopening tcp 445 smb enable
-Add-Content $log -value "Ran firewall config to allow incoming smb/tcp"
+# Enable SSH connections 
+&netsh firewall set portopening tcp 22 ssh enable
+Add-Content $log -value "Ran firewall config to allow incoming SSH"
+
+# &netsh firewall set portopening tcp 445 smb enable
+# Add-Content $log -value "Ran firewall config to allow incoming smb/tcp"
 
 #run SMRemoting script to enable event log management, etc - available only on R2
 $remotingScript = [IO.Path]::Combine($systemPath, 'Configure-SMRemoting.ps1')
@@ -270,7 +254,9 @@ if (Test-Path $remotingScript)
 #wait a bit, it's windows after all
 Start-Sleep -m 10000
 
-#Write-Host "Press any key to reboot and finish image configuration"
-#[void]$host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown')
+# Write reboot operation to log
+
+Add-Content $log -value 'Configuration Complete'
+Add-Content $log -value 'Restarting Computer'
 
 Restart-Computer

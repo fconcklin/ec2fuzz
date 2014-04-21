@@ -6,3 +6,7 @@ instance_log
 keypair
 userdata.txt.back
 userdata.txt.bak
+fuzzing_instance
+instance_console
+peach_templates/new_template.xml
+userdata.txt
