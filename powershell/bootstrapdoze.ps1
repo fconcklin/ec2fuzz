@@ -66,10 +66,11 @@ if ((Test-Path "${Env:windir}\Microsoft.NET\Framework\v4.0.30319") -eq $false)
 # Peach fuzzer 3.0 requires windows debugging tools
 if ((Test-Path "C:\Program Files\Debugging Tools for Windows (x64)") -eq $false)
 {
-    $netUrl = 'http://download.microsoft.com/download/B/0/C/B0C80BA3-8AD6-4958-810B-6882485230B5/standalonesdk/sdksetup.exe'    
-    $client.DownloadFile( $netUrl, 'windbg.exe')
-    Start-Process -FilePath 'C:\Users\Administrator\windbg.exe' -ArgumentList '/norestart /q /ChainingPackage ADMINDEPLOYMENT' -Wait -NoNewWindow
-    del tools.exe
+#    $netUrl = 'http://download.microsoft.com/download/B/0/C/B0C80BA3-8AD6-4958-810B-6882485230B5/standalonesdk/sdksetup.exe'    
+	$netUrl = 'http://download.microsoft.com/download/A/6/A/A6AC035D-DA3F-4F0C-ADA4-37C8E5D34E3D/winsdk_web.exe'
+    $client.DownloadFile( $netUrl, 'winsdk_web.exe')
+    Start-Process -FilePath 'C:\Users\Administrator\winsdk_web.exe' -ArgumentList '/norestart /q /ChainingPackage ADMINDEPLOYMENT' -Wait -NoNewWindow
+    del winsdk_web.exe
     Add-Content $log -value "Found that Windows Debugging tools were not installed and downloaded / installed"
 }
 
@@ -169,24 +170,26 @@ $Env:Path += ';C:\Program Files\Curl'
 del curl.zip
 Add-Content $log -value "Installed Curl from $curlUri and updated path"
 
-#windows debug toolkit
-#curl -# -G -k -L http://download.microsoft.com/download/B/0/C/B0C80BA3-8AD6-4958-810B-6882485230B5/standalonesdk/sdksetup.exe 2>&1 > "$log"
-
-
 # Peach fuzzer 3.0 must be downloaded 
 if ((Test-Path "C:\Users\Administrator\peach") -eq $false)
 {
-    $netUrl = 'http://downloads.sourceforge.net/project/peachfuzz/Peach/3.0/peach-3.0.202-win-x64-release.zip?r=1397538292&use_mirror=softlayer-dal'
-    $client.DownloadFile( $netUrl, 'peachdownload.zip')
-    &7z x "C:\Users\Administrator\peachdownload.zip"
+	$netUrl = 'http://downloads.sourceforge.net/project/peachfuzz/Peach/3.0/peach-3.0.202-win-x64-release.zip?r=1397538292&use_mirror=softlayer-dal'
+	$client.DownloadFile( $netUrl, 'peachdownload.zip')
+#	&7z x "C:\Users\Administrator\peachdownload.zip"
+	&7z x peachdownload.zip `-o`"C:\Users\Administrator\Peach`"
+	SetX Path "${Env:Path};C:\Users\Administrator\Peach\peach-3.0.202-win-x64-release" /m
+	$Env:Path += ';C:\Users\Administrator\Peach\peach-3.0.202-win-x64-release'
+	Add-Content $log -value "Installed Peach fuzzer and updated path"
 }
 
 # Add Peach fuzzer to path
 # http://blogs.technet.com/b/heyscriptingguy/archive/2011/07/23/use-powershell-to-modify-your-environmental-path.aspx
-$oldPath = (Get-ItemProperty -Path 'Registry::HKEY_LOCAL_MACHINE\System\CurrentControlSet\Control\Session Manager\Environment' -Name PATH).Path 
-$newPath = $oldPath+';C:\Users\Administrator\peachdownload\'
+# $oldPath = (Get-ItemProperty -Path 'Registry::HKEY_LOCAL_MACHINE\System\CurrentControlSet\Control\Session Manager\Environment' -Name PATH).Path 
+# $newPath = $oldPath+';C:\Users\Administrator\peachdownload\'
 
-Set-ItemProperty -Path 'Registry::HKEY_LOCAL_MACHINE\System\CurrentControlSet\Control\Session Manager\Environment' -Name PATH -Value $newPath
+#Set-ItemProperty -Path 'Registry::HKEY_LOCAL_MACHINE\System\CurrentControlSet\Control\Session Manager\Environment' -Name PATH -Value $newPath
+
+Add-Content $log -value "Added Peach to Path"
 
 #Add-Content $log -value "Installed Vim text editor and updated path"
 
@@ -216,8 +219,7 @@ else
 
 Add-Content $log -value "Installed Chocolatey"
 
-# Install Openssh using Chocolatey
-cinst winsshd.install
+&cinst winsshd
 Add-Content $log -value 'Installed WinSSHD'
 
 # install puppet
