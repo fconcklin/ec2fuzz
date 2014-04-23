@@ -1,4 +1,4 @@
-#!/bin/bash 
+#!/usr/local/bin/bash 
 #
 # Cloud fuzzing on AWS EC2
 # Requires winrm on path
@@ -21,15 +21,20 @@ load_config()
 
 deps()
 {
-    # TODO - dependency checks
     echo "Checking dependencies." | tee log
-    command -v go >/dev/null 2>&1 || { echo >&2 "Go required but not installed.  Aborting." | tee -a log; exit 1; }
-    command -v aws >/dev/null 2>&1 || { echo >&2 "Aws required but not installed.  Aborting." | tee -a log; exit 1; }
-    command -v zip >/dev/null 2>&1 || { echo >&2 "Zip required but not installed.  Aborting." | tee -a log; exit 1; }
-    command -v curl >/dev/null 2>&1 || { echo >&2 "Curl required but not installed.  Aborting." | tee -a log; exit 1; }
-    command -v winrm >/dev/null 2>&1 || { echo >&2 "Winrm required but not installed.  Aborting." | tee -a log; exit 1; }
-    command -v ssh >/dev/null 2>&1 || { echo >&2 "SSH required but not installed.  Aborting." | tee -a log; exit 1; }
-    command -v sshpass >/dev/null 2>&1 || { echo >&2 "sshpass required but not installed.  Aborting." | tee -a log; exit 1; }
+    # bash v4 required for ridiculous associative arrays (see main)
+    # http://www.artificialworlds.net/blog/2012/10/17/bash-associative-array-examples/
+    if (( $BASH_VERSINFO < 4 )); 
+    then 
+	echo "Sorry, you need at least bash-4.0 to run this script." >&2; exit 1
+    fi
+    command -v go >/dev/null 2>&1 || { echo >&2 "Go required but not installed. Aborting." | tee -a log; exit 1; }
+    command -v aws >/dev/null 2>&1 || { echo >&2 "Aws required but not installed. Aborting." | tee -a log; exit 1; }
+    command -v zip >/dev/null 2>&1 || { echo >&2 "Zip required but not installed. Aborting." | tee -a log; exit 1; }
+    command -v curl >/dev/null 2>&1 || { echo >&2 "Curl required but not installed. Aborting." | tee -a log; exit 1; }
+    command -v winrm >/dev/null 2>&1 || { echo >&2 "Winrm required but not installed. Aborting." | tee -a log; exit 1; }
+    command -v ssh >/dev/null 2>&1 || { echo >&2 "SSH required but not installed. Aborting." | tee -a log; exit 1; }
+    command -v sshpass >/dev/null 2>&1 || { echo >&2 "sshpass required but not installed. Aborting." | tee -a log; exit 1; }
 }
 
 create_keypair()
@@ -81,8 +86,6 @@ get_ip_cidr()
 check_sg_for_rule() {
     # Skip rule ingress/egress rule creation
     # if rule already exists for security group (for specific /24)
-    # port=$1
-    # cidr=$2
     rule_exists=$(ec2-describe-group $SECURITY_GROUP 2>&1 | grep -E "$1.*$2" | wc -l)
     echo $rule_exists
 }
@@ -114,7 +117,8 @@ enable_winrm() {
     defined=$(check_sg_for_rule $winrm_port $cidr)
     if [ $defined -eq 0 ]
     then
-	# enable winrm - http://www.masterzen.fr/2014/01/11/bootstrapping-windows-servers-with-puppet/
+	# enable winrm 
+	# aws inner portion - http://www.masterzen.fr/2014/01/11/bootstrapping-windows-servers-with-puppet/
 	echo "Enabling Winrm" | tee -a log
 	winrm_status=$(aws ec2 authorize-security-group-ingress \
 	    --group-name $SECURITY_GROUP --protocol tcp --port $winrm_port --cidr $(cat cidr) 2>&1)
@@ -150,8 +154,8 @@ authorize-ports()
     echo "Enabling network access in security groups." | tee -a log
     get_ip_cidr
     enable_rdp
-    enable_winrm #; enable_smbtcp 
-    enable_ssh
+    enable_winrm 
+    enable_ssh #--enable_smbtcp <- tunnel
 }
 
 set_ami_password()
@@ -161,7 +165,7 @@ set_ami_password()
     echo "Setting AMI password in USERDATA for template" | tee -a log
     echo "AMI password:" | tee -a log
     echo $(echo $AMI_PASSWORD | tr -d '"' | tr -d '\') | tee -a log
-    # make a backup of userdata file
+    # make a backup of userdata file before modification
     sed -i.bak "s/\"[^']*\"/$AMI_PASSWORD/g" $USER_DATA_FILE 
 }
 
@@ -189,7 +193,6 @@ find_template_instances()
     ec2-terminate-instances $template_id 2>&1 
 
     # TODO - find and remove snapshots
-
 }
 
 launch_wintemplate_instance()
@@ -212,7 +215,6 @@ launch_wintemplate_instance()
 wait_for_instance_setup()
 {
     # poll system log for instance
-    # TODO - verify this works
     ec2-get-console-output $instance_id > instance_log 2>&1
     sleep 5
     # read last line of log, if it has message
@@ -380,7 +382,7 @@ launch_fuzzing_instance()
 	    echo "AMI snapshot complete" | tee -a log
 	fi
 	# terminate prior instances
-	find_template_instances
+#	find_template_instances
 	echo "Launching fuzzing machine instance." | tee -a log
 	# check if ami_id is configured, if not then exit. Must be manually defined 
 	# if create_custom_ami is skipped
@@ -389,7 +391,15 @@ launch_fuzzing_instance()
 	aws ec2 run-instances --image-id $ami_id --instance-type t1.micro --security-groups $SECURITY_GROUP --key-name $KEYPAIR 2>&1 > fuzzing_instance
 	# get instance id 
 	fuzzing_instance_id=$(grep InstanceId fuzzing_instance | awk 'BEGIN { FS = "\"" } ; { print $4 }')
+	declare "RUN_${CURRENT_RUN}[id]=${fuzzing_instance_id}"
+	echo "RUN_1[id]: "
+
+	tmp="RUN_${i}[id]"
+	id=$(eval echo \${$tmp})
+	echo $id
+
 	get_fuzzing_instance_ip
+	declare "RUN_${CURRENT_RUN}[ip]=${fuzzing_instance_ip}"
 	echo $fuzzing_instance_id > fuzzing_instance_id 
 	echo $fuzzing_instance_ip > fuzzing_instance_ip
 	check_fuzzing_instance_ready
@@ -406,9 +416,24 @@ kill_previous_ssh_sessions()
     fi
 }
 
+generate_random_ssh_port()
+{
+    ssh_port=$(perl -e 'print int(rand(49151-1024))')
+    port_used=$(lsof -i:$ssh_port)
+    if [[ -n $port_used ]]; then 
+	generate_random_ssh_port
+    else
+	echo $ssh_port
+    fi
+}
+
 create_ssh_tunnel()
 {
-    kill_previous_ssh_sessions
+#    kill_previous_ssh_sessions
+
+    # generate random user port 
+    ssh_port=$(generate_random_ssh_port)
+
     # disable fingerprint verification and 
     # pipe the password on the commandline 
     # because we hate security
@@ -416,18 +441,22 @@ create_ssh_tunnel()
     # ----
     # create a local port 4455 that is the remote SMB server over SSH tunnel
     echo "Creating SSH tunnel to fuzzing instance." | tee -a log
-    sshpass -p $formatted_pass ssh -f -N -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -L 4455:127.0.0.1:445 Administrator@$fuzzing_instance_ip
+    sshpass -p $formatted_pass ssh -f -N -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -L $ssh_port:127.0.0.1:445 Administrator@$fuzzing_instance_ip
 }
 
 mount_instance()
 {
     # TODO - fix
     create_ssh_tunnel
+    declare "RUN_${CURRENT_RUN}[sshport]=${ssh_port}"
+    # add ssh port to array
     echo "Mounting instance" | tee -a log
     # http://www.masterzen.fr/2014/01/11/bootstrapping-windows-servers-with-puppet/
     # test if the mountpoint is mounted
-    mkdir -p $BASE_MOUNTPOINT
-    mount_smbfs //Administrator:$formatted_pass@127.0.0.1:4455/C$ $BASE_MOUNTPOINT
+    RUN_MOUNTPOINT=$BASE_MOUNTPOINT/run_$CURRENT_RUN
+    declare "RUN_${CURRENT_RUN}[mountpoint]=${RUN_MOUNTPOINT}"
+    mkdir -p $RUN_MOUNTPOINT
+    mount_smbfs //Administrator:$formatted_pass@127.0.0.1:$ssh_port/C$ $RUN_MOUNTPOINT
 }
 
 install_seeds()
@@ -436,10 +465,10 @@ install_seeds()
     echo "Installing seed files to instance" 
     if [ -e $SEEDS_DIR ]; then 
 	# install seed files for fuzzer 
-	mkdir -p $BASE_MOUNTPOINT/fuzzing_run
-	mkdir -p $BASE_MOUNTPOINT/fuzzing_run/logs
-	mkdir -p $BASE_MOUNTPOINT/fuzzing_run/seeds
-	cp -r $SEEDS_DIR $BASE_MOUNTPOINT/fuzzing_run/seeds/
+	mkdir -p $RUN_MOUNTPOINT/fuzzing_run
+	mkdir -p $RUN_MOUNTPOINT/fuzzing_run/logs
+	mkdir -p $RUN_MOUNTPOINT/fuzzing_run/seeds
+	cp -r $SEEDS_DIR $RUN_MOUNTPOINT/fuzzing_run/seeds/
     else
 	echo "Seeds Directory not found. Exiting"
 	exit 1 
@@ -468,7 +497,7 @@ install_windbg()
     # http://www.microsoft.com/en-us/download/confirmation.aspx?id=8442
     # GRMSDKIAI_EN_DVD/Setup/WinSDKDebuggingTools_amd64
     echo "Installing windbg"
-    cp $(pwd)/windeps/dbg_amd64.msi $BASE_MOUNTPOINT
+    cp $(pwd)/windeps/dbg_amd64.msi $RUN_MOUNTPOINT
     winrm -hostname $fuzzing_instance_ip -username Administrator -password $formatted_pass \
 	"msiexec /i C:\dbg_amd64.msi /quiet"
 }
@@ -478,7 +507,7 @@ install_template()
     # TODO - make sure this works 
     # Install the Peach Pit file 
     # onto the EC2 instance over local mountpoint 
-    cp $(pwd)/peach_templates/new_template.xml $BASE_MOUNTPOINT/fuzzing_run/
+    cp $(pwd)/peach_templates/new_template.xml $RUN_MOUNTPOINT/fuzzing_run/
 }
 
 start_fuzzing_run()
@@ -490,8 +519,9 @@ start_fuzzing_run()
     install_windbg
     echo "Running Peach"
     winrm -hostname $fuzzing_instance_ip -username Administrator -password $formatted_pass "Peach.exe C:\fuzzing_run\new_template.xml" > fuzzing_log 2>&1 &
-#    fuzzing_pid=$!
-    echo "PID of fuzzing command: $fuzzing_pid"
+    winrm_pid="$!"
+    declare "RUN_${CURRENT_RUN}[pid]=${winrm_pid}"
+    echo "PID of fuzzing command: $winrm_pid"
     echo "Writing results to fuzzing_log"
 }
 
@@ -526,6 +556,33 @@ launch_fuzzing_run()
     fi 
 }
 
+launch_fuzzing_runs()
+{
+    # Run fuzzing run for each machine
+    # generate unique mountpoint and sshport 
+    # store the results
+    RUNS=()
+    CURRENT_RUN=0
+    for i in $(seq 1 $NUM_INSTANCES)
+    do 
+	declare -A "RUN_$i"
+	RUNS+=($i)
+	CURRENT_RUN=$i
+	echo "Launching run $i"
+	launch_fuzzing_run
+    done
+    for i in $(seq 1 $NUM_INSTANCES)
+    do 
+	echo "Data for run $i:"
+	for K in $(eval echo \${!RUN_${i}[@]});
+	do
+	    tmp="RUN_${i}[$K]"
+	    id=$(eval echo \${$tmp})
+	    echo $id
+	done
+    done
+}
+
 main()
 {
     load_config
@@ -538,7 +595,7 @@ main()
     else
 	echo "Skipping custom AMI creation."
     fi
-    launch_fuzzing_run
+    launch_fuzzing_runs
 }
 
 usage() 
