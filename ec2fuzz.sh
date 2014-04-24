@@ -489,7 +489,7 @@ create_peachpit_template()
     # file parsing to transform the 
     # config will take place 
     # for right now just assume that new_template.xml 
-    # is the correctly configured file 
+    # is the correctly configured file   
 }
 
 install_windbg()
@@ -561,12 +561,10 @@ launch_fuzzing_runs()
     # Run fuzzing run for each machine
     # generate unique mountpoint and sshport 
     # store the results
-    RUNS=()
     CURRENT_RUN=0
     for i in $(seq 1 $NUM_INSTANCES)
     do 
 	declare -A "RUN_$i"
-	RUNS+=($i)
 	CURRENT_RUN=$i
 	echo "Launching run $i"
 	launch_fuzzing_run
