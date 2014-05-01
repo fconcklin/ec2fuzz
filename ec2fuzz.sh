@@ -391,7 +391,7 @@ launch_fuzzing_instance()
 	aws ec2 run-instances --image-id $ami_id --instance-type t1.micro --security-groups $SECURITY_GROUP --key-name $KEYPAIR 2>&1 > fuzzing_instance
 	# get instance id 
 	fuzzing_instance_id=$(grep InstanceId fuzzing_instance | awk 'BEGIN { FS = "\"" } ; { print $4 }')
-	declare "RUN_${CURRENT_RUN}[id]=${fuzzing_instance_id}"
+	# declare "RUN_${CURRENT_RUN}[id]=${fuzzing_instance_id}"
 	echo "RUN_1[id]: "
 
 	tmp="RUN_${i}[id]"
@@ -399,7 +399,7 @@ launch_fuzzing_instance()
 	echo $id
 
 	get_fuzzing_instance_ip
-	declare "RUN_${CURRENT_RUN}[ip]=${fuzzing_instance_ip}"
+	# declare "RUN_${CURRENT_RUN}[ip]=${fuzzing_instance_ip}"
 	echo $fuzzing_instance_id > fuzzing_instance_id 
 	echo $fuzzing_instance_ip > fuzzing_instance_ip
 	check_fuzzing_instance_ready
